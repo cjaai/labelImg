@@ -7,6 +7,9 @@ import platform
 import re
 import sys
 import subprocess
+import pandas as pd
+from os import listdir
+import shutil
 
 from functools import partial
 from collections import defaultdict
@@ -44,6 +47,10 @@ from libs.yolo_io import YoloReader
 from libs.yolo_io import TXT_EXT
 from libs.ustr import ustr
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
+
+# add by Ryou 7/26 
+from PyQt5 import QtCore, QtGui, QtWidgets
+import ParaSetting
 
 __appname__ = 'labelImg'
 
@@ -194,6 +201,17 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Actions
         action = partial(newAction, self)
+
+        #add by Ryou 7/22 yolo対応
+        paraSetting = action(getStr('paraSetting'), self.paraSetting,
+                      'Ctrl+P', 'paraSetting', getStr('paraSetting'))
+
+        #yoloTest = action(getStr('yoloTest'), self.yoloTest,
+        #              'Ctrl+Y', 'test', getStr('yoloTest'))  
+
+        yoloTest = action(getStr('yoloTest'), self.showBox,
+                      'Ctrl+Y', 'test', getStr('yoloTest'))  
+
         quit = action(getStr('quit'), self.close,
                       'Ctrl+Q', 'quit', getStr('quitApp'))
 
@@ -343,6 +361,8 @@ class MainWindow(QMainWindow, WindowMixin):
                               onShapesPresent=(saveAs, hideAll, showAll))
 
         self.menus = struct(
+            #add by Ryou 7/22 yolo対応
+            yolo=self.menu('&Yolo'),
             file=self.menu('&File'),
             edit=self.menu('&Edit'),
             view=self.menu('&View'),
@@ -367,6 +387,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.displayLabelOption.setChecked(settings.get(SETTING_PAINT_LABEL, False))
         self.displayLabelOption.triggered.connect(self.togglePaintLabelsOption)
 
+        #add by Ryou 7/22 yolo対応
+        addActions(self.menus.yolo, (paraSetting, yoloTest))
         addActions(self.menus.file,
                    (open, opendir, changeSavedir, openAnnotation, self.menus.recentFiles, save, save_format, saveAs, close, resetAll, quit))
         addActions(self.menus.help, (help, showInfo))
@@ -388,8 +410,15 @@ class MainWindow(QMainWindow, WindowMixin):
             action('&Move here', self.moveShape)))
 
         self.tools = self.toolbar('Tools')
+        # moify by Ryou 7/23
+        '''
         self.actions.beginner = (
             open, opendir, changeSavedir, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, delete, None,
+            zoomIn, zoom, zoomOut, fitWindow, fitWidth)
+            '''
+
+        self.actions.beginner = (
+            paraSetting,yoloTest,open, opendir, changeSavedir, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, delete, None,
             zoomIn, zoom, zoomOut, fitWindow, fitWidth)
 
         self.actions.advanced = (
@@ -703,6 +732,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.setDirty()
             else:  # User probably changed item visibility
                 self.canvas.setShapeVisible(shape, item.checkState() == Qt.Checked)
+                # add by Ryou 7/19
+                self.canvas.repaint()
         except:
             pass
 
@@ -832,6 +863,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.setDirty()
         else:  # User probably changed item visibility
             self.canvas.setShapeVisible(shape, item.checkState() == Qt.Checked)
+            #add by Ryou 7/19
+            self.canvas.repaint()
 
     # Callback functions:
     def newShape(self):
@@ -953,7 +986,12 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def togglePolygons(self, value):
         for item, shape in self.itemsToShapes.items():
-            item.setCheckState(Qt.Checked if value else Qt.Unchecked)
+            # modify by Ryou 7/19
+            #item.setCheckState(Qt.Checked if value else Qt.Unchecked)
+            self.canvas.visible[shape] = value
+
+        # add by Ryou 7/19
+        self.canvas.repaint()
 
     def loadFile(self, filePath=None):
         """Load the specified file, or the last opened file if None."""
@@ -1439,9 +1477,105 @@ class MainWindow(QMainWindow, WindowMixin):
     def toogleDrawSquare(self):
         self.canvas.setDrawingShapeToSquare(self.drawSquaresOption.isChecked())
 
+    #add by Ryou 7/22 yolo対応
+    def paraSetting(self, _value=False):
+        self.paraConf=ParaSetting.ParaSetting()
+        self.paraConf.show()
+
+    def showBox(self):
+        '''
+        ret = QMessageBox.information(None, "My message", "Press a button!", QMessageBox.Yes, QMessageBox.No) 
+        
+
+        if ret == QMessageBox.Yes:
+            print('Yes was clicked')
+        elif ret == QMessageBox.No:
+            print('No was clicked')
+            '''
+
+        QMessageBox.about(self, "Title", "Message")
+
+
+
+
+    def yoloTest(self, _value=False):
+        #add by Ryou 8/2 yolo対応
+        def createSeparateCsvFile():
+            outputCsv = darknetParamDir + '\\backup\\output\\fascia\\te.csv'
+            csvData = ['FileName','Class','box']
+            csvDataAfter = ['content']
+            df = pd.read_csv(outputCsv,names=csvData)
+
+            newDF = pd.DataFrame()
+        
+            for g,g1 in df.groupby("FileName"):
+                name, ext = os.path.splitext(g1.loc[g1.index[0], "FileName"])
+                outputFullName = os.getcwd() + '\\testImage\\'+ name + '.txt'
+                rows = []
+                for index,row in g1.iterrows():    
+                    classNo = row['Class']
+                    box = row['box']
+                    box = box.replace('[','')  
+                    box = box.replace(']','')  
+                    box = box.split(" ")
+                    x,y,w,h = convert(int(box[4]),int(box[5]),int(box[0]),int(box[1]),int(box[2]),int(box[3]))
+                    addRow = str(classNo) + ' ' + str(x) + ' ' +  str(y)  + ' ' +   str(w)+ ' ' +  str(h)
+                    rows.append(addRow)
+
+                newDF = pd.DataFrame(rows, columns=csvDataAfter)
+                newDF.to_csv(outputFullName, header=False, index=False)
+
+        def convert(w,h, x1,y1,x2,y2):
+            dw = 1./w
+            dh = 1./h
+            x = (x1 + x2)/2.0
+            y = (y1 + y2)/2.0
+            w = x2 - x1
+            h = y2 - y1
+            x = x*dw
+            w = w*dw
+            y = y*dh
+            h = h*dh
+            return (x,y,w,h)
+
+        #darknetParamDir = ParaSetting.config #'C:\\darknet-master\\build\\darknet\\x64'
+        # for test
+        darknetParamDir = 'C:\\darknet-master\\build\darknet\\x64'
+
+        #imageList = ParaSetting.imageLstName #'D:\\labelImg-master\\testImage\\list.txt'
+        # for test
+        imageList = 'D:\\labelImg-master\\testImage\\list.txt'  
+        if  os.path.exists(darknetParamDir+ '\\backup\\output'): 
+            shutil.rmtree(darknetParamDir+ '\\backup\\output') 
+             
+        darknetStr = 'darknet.exe detector test '
+        darknetStr += 'cfg\\obj.data '
+        darknetStr +=  'cfg\\yolo-obj.cfg '
+        darknetStr +=  'backup\\yolo-obj_final.weights '
+        darknetStr += '< ' + imageList + ' -i 0 '
+        darknetStr += '-thresh 0.25 '
+         
+        print('&&&&&&&& darknetStr is:',darknetStr)
+        currentDir = os.getcwd()
+        os.chdir(darknetParamDir)
+
+        p=os.system(darknetStr)
+        os.chdir(currentDir)
+
+        #delete the yolo txt files before running
+        txtPath = os.path.join(os.getcwd(), 'testImage')
+        for file_name in listdir(txtPath):
+            print('file_name')
+            print(file_name)
+            if file_name.endswith('.txt') :
+               if not (file_name == 'list.txt' or file_name == 'classes.txt'):
+                   os.remove(txtPath + '\\' + file_name)
+
+        createSeparateCsvFile()
+
+
 def inverted(color):
     return QColor(*[255 - v for v in color.getRgb()])
-
 
 def read(filename, default=None):
     try:
@@ -1449,7 +1583,6 @@ def read(filename, default=None):
             return f.read()
     except:
         return default
-
 
 def get_main_app(argv=[]):
     """
